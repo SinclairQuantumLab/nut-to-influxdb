@@ -1,0 +1,11 @@
+# Settings configuration file for nut-to-influxdb app
+# Copy this file, remove `.template` extension, and setup the below.
+# See README.md for detail
+
+# Name of UPS set in /etc/nut/ups.conf
+# "SN_<serial nunbmer>" is the recommended name
+# e.g. ups_name = "SN_AS2533366439"
+ups_name = "<ups name>"
+
+# interval of periodic relay loop
+interval_s = 30

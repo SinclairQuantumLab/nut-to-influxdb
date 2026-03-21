@@ -1,0 +1,12 @@
+# Auth configuration file to access local NUT server
+# Copy this file, remove `.template` extension, and setup the below.
+# See README.md for detail
+
+# local NUT server address
+host = "localhost"
+port = 3493 # default: 3493
+
+# account for monitoring UPS status
+# set in /etc/nut/upsmon.conf
+username = "monuser"
+password = "<password>"
