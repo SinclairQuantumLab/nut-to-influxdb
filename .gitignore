@@ -5,6 +5,9 @@ settings.toml
 
 # <<<<<< for this app <<<<<
 
+# supervisor .conf files
+supervisor/*.conf
+
 # IMAQ Lab config repo
 imaq_config/*
 
