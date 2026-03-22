@@ -115,19 +115,17 @@ For the APC unit used during development, the UPS appeared as something like:
 Bus 001 Device 004: ID 051d:0003 American Power Conversion Uninterruptible Power Supply
 ```
 
-The important part to note for following steps:
-- Bus #: 001
-- Device #: 004
-- Vendor ID: `051d`
-- Product ID = `0003`
+The important values for the following steps are:
 
-The serial number of the UPS can be further obtained using the bus and device # obtained above.
+- Vendor ID: `051d`
+- Product ID: `0003`
+
+You may also want the UPS serial number:
 
 ```bash
 $ sudo lsusb -s <bus num>:<device num> -v | grep iSerial
-  iSerial                 3 AS2533366439 
+  iSerial                 3 AS2533366439
 ```
-
 
 ### 2. Install NUT
 
@@ -136,6 +134,12 @@ Install the base NUT packages:
 ```bash
 $ sudo apt update
 $ sudo apt install nut nut-client nut-server
+```
+
+Optional GUI tools for manual inspection:
+
+```bash
+$ sudo apt install nut-monitor nut-cgi lighttpd
 ```
 
 ### 3. Configure NUT standalone mode
@@ -164,31 +168,33 @@ $ sudo nano /etc/nut/ups.conf
 
 A minimal working example:
 
-
 ```ini
-[<ups name>]
-    driver = <driver name>
-    port = <port address>
-    vendorid = <4-digit hex codes>
-    productid = <4-digit hex codes>
+[<ups_name>]
+    driver = usbhid-ups
+    port = auto
+    vendorid = 051d
+    productid = 0003
     serial = <serial number>
-    desc = "<string>"
+    desc = "<description>"
 ```
 
-- `<ups name>`: the UPS name that will later be used in commands such as `upsc <ups_name>@localhost`.
-    - Recommended value: SN_\<serial number of the ups; see below\>.
-- `<driver name>`: the name of the driver, a compiled binary file located on your system (usually in `/lib/nut/` or `/usr/lib/nut/`) for the UPS.
-    - Recommended value: `usbhid-ups` covers the most of modern USB UPS units using the standard HID protocol.
-- `<port address>`: port to connect to the ups.
-    - USB: set `auto`. It will scan the system's hardware buses to find a device with given serial number.
-    - Serial: /dev/ttyS0
-    - Network: <network address (e.g. ip address)>
-- `vendorid` & `productid`: 4 hex digits obtained in [Step 1](#1-confirm-that-the-ups-is-visible-over-usb) via `lsusb`. Not always strictly required, but they can make troubleshooting easier and avoid ambiguity.
-- `serial`: the serial number of the UPS obtained in [Step 1](#1-confirm-that-the-ups-is-visible-over-usb).
-- `desc`: description string in a double quotation pair.
-    - Recommended value: Product name and model #.
+Field notes:
 
-The below is an example configuration.
+- `<ups_name>`:
+  - The UPS name used later in commands such as `upsc <ups_name>@localhost`
+  - Recommended convention: `SN_<serial number>`
+- `driver`:
+  - For many modern USB UPS units, `usbhid-ups` is the correct driver
+- `port`:
+  - For USB UPS units, use `auto`
+- `vendorid` and `productid`:
+  - Helpful for reducing ambiguity during detection
+- `serial`:
+  - Optional, but useful if multiple similar devices exist
+- `desc`:
+  - A human-readable description
+
+Example:
 
 ```ini
 [SN_AS2533366439]
@@ -196,9 +202,9 @@ The below is an example configuration.
     port = auto
     vendorid = 051d
     productid = 0003
+    serial = AS2533366439
     desc = "APC Smart-UPS On-Line SRT2200RMXLA"
 ```
-
 
 ### 5. Add a udev rule so NUT can access the UPS
 
@@ -236,9 +242,13 @@ After that, unplug and reconnect the UPS USB cable.
 
 Before debugging the full NUT stack, test the UPS driver itself.
 
-On many Debian or Raspberry Pi OS systems, `usbhid-ups` is not in the default shell `PATH`, so `sudo usbhid-ups ...` may fail with `command not found`. Find the actual binary location first:
+On many Debian or Raspberry Pi OS systems, `usbhid-ups` is not in the default shell `PATH`, so `sudo usbhid-ups ...` may fail with `command not found`.
+
+Try these commands in order to locate it:
 
 ```bash
+$ command -v usbhid-ups
+$ find /lib /usr/lib -name usbhid-ups 2>/dev/null
 $ dpkg -L nut | grep usbhid-ups
 ```
 
@@ -247,7 +257,7 @@ Typical locations are:
 - `/lib/nut/usbhid-ups`
 - `/usr/lib/nut/usbhid-ups`
 
-Then run the driver directly with debug output. For example:
+Then run the driver directly with debug output:
 
 ```bash
 $ sudo /lib/nut/usbhid-ups -DDD -a <ups_name>
@@ -261,9 +271,52 @@ $ sudo /usr/lib/nut/usbhid-ups -DDD -a <ups_name>
 
 If the USB permissions are correct, this should no longer fail with an access denied error.
 
-### 7. Start and test the NUT services
+### 7. Create a NUT user for monitoring
 
-Once the driver works, restart the NUT services:
+`upsmon` authenticates to `upsd` using a user defined in `/etc/nut/upsd.users`.
+
+Edit `/etc/nut/upsd.users`:
+
+```bash
+$ sudo nano /etc/nut/upsd.users
+```
+
+Add a monitoring user:
+
+```ini
+[monuser]
+    password = <password>
+    upsmon primary
+```
+
+> **Notes**:
+>- `monuser` is just an example username
+>- The password here must match the password used later in `/etc/nut/upsmon.conf`
+
+### 8. Configure `upsmon.conf`
+
+Edit `/etc/nut/upsmon.conf`:
+
+```bash
+$ sudo nano /etc/nut/upsmon.conf
+```
+
+Add a `MONITOR` line for the UPS:
+
+```ini
+MONITOR <ups_name>@localhost 1 monuser <password> primary
+```
+
+This tells `upsmon`:
+
+- which UPS to monitor
+- which user to authenticate as
+- which password to use
+- that this machine is the `primary` monitoring system
+
+### 9. Start and test the NUT services
+
+Once the driver and config files are ready, restart the NUT services:
 
 ```bash
 $ sudo systemctl restart nut-server
@@ -277,7 +330,25 @@ $ sudo systemctl enable nut-server
 $ sudo systemctl enable nut-monitor
 ```
 
-Now test the configured UPS through `upsd`:
+### 10. Discover the UPS name exposed by `upsd`
+
+If you are not sure which UPS name `upsd` is currently exposing, use:
+
+```bash
+$ upsc -l localhost
+```
+
+To list both UPS names and descriptions:
+
+```bash
+$ upsc -L localhost
+```
+
+This is often the easiest way to confirm that the configured `<ups_name>` matches what `upsd` is actually serving.
+
+### 11. Test the configured UPS through `upsd`
+
+Now test the UPS through the NUT server:
 
 ```bash
 $ upsc <ups_name>@localhost
@@ -297,19 +368,13 @@ input.voltage: 120.0
 ups.load: 18
 ```
 
-### 8. Optional GUI tools for manual inspection
+### 12. Optional GUI tools for manual inspection
 
 #### `nut-monitor`
 
 `nut-monitor` was the most convenient GUI during setup and debugging.
 
-Install it with:
-
-```bash
-$ sudo apt install nut-monitor
-```
-
-Then run:
+Run:
 
 ```bash
 $ NUT-Monitor
@@ -321,14 +386,11 @@ Use the following connection values:
 - Port: `3493`
 - UPS name: `<ups_name>`
 
-This is a convenient way to confirm that NUT is working independently of the InfluxDB relay.
-
 #### `nut-cgi`
 
-If a browser-based view is preferred, `nut-cgi` can also be installed:
+If a browser-based view is preferred:
 
 ```bash
-$ sudo apt install nut-cgi lighttpd
 $ sudo lighty-enable-mod cgi
 $ sudo systemctl restart lighttpd
 ```
@@ -339,21 +401,19 @@ Create `/etc/nut/hosts.conf`:
 $ sudo nano /etc/nut/hosts.conf
 ```
 
-Example content:
+Example:
 
 ```ini
 MONITOR myups "<ups_name>@localhost"
 ```
 
-Then, depending on your CGI setup, open a URL similar to:
+Then open a URL similar to:
 
 ```text
 http://<raspberry-pi-ip>/cgi-bin/upsstats.cgi?host=myups
 ```
 
-This can be useful, but in practice `nut-monitor` was the more convenient tool during development.
-
-### 9. Common troubleshooting notes
+### 13. Common troubleshooting notes
 
 #### `Error: no UPS definitions found in ups.conf`
 
@@ -382,10 +442,12 @@ Re-check:
 
 - `MODE=standalone` in `/etc/nut/nut.conf`
 - the UPS name in `/etc/nut/ups.conf`
+- the user in `/etc/nut/upsd.users`
+- the `MONITOR` line in `/etc/nut/upsmon.conf`
 - that `nut-server` and `nut-monitor` were restarted
 - that the UPS name used in `upsc` matches the section name in `ups.conf`
 
-### 10. Final readiness check for this relay
+### 14. Final readiness check for this relay
 
 Before running `main.py`, the following command should work:
 
