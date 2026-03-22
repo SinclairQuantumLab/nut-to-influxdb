@@ -9,3 +9,8 @@ ups_name = "<ups name>"
 
 # interval of periodic relay loop
 interval_s = 30
+
+# Number of consecutive loop exceptions tolerated before raising.
+# When error counter reaches ex_threshold, the exception is raised so that
+# the process supervisor can restart the app.
+ex_threshold = 3
